@@ -1,0 +1,41 @@
+# 用户放入的训练目录（从 GPT-SoVITS/logs 复制）：只提交指引文档
+logs/*
+!logs/README.md
+
+# 流水线生成的产物（体积大）
+work/
+dist/
+*.onnx
+*.onnx.data
+model.data
+*.bin
+*.npy
+*.npz
+*.part
+*.done.json
+
+# 高通 QAIRT SDK：用户自行放入 qairt/，只提交其中的指引文档
+qairt/*
+!qairt/README.md
+
+# 由 export/make_deploy.py 生成/拷贝到部署包里的文件（不应出现在 device/ 源码中）
+device/qnn_libs/
+device/include/
+device/tools/qnn-*
+device/tools/lib/
+device/tools/dsp/
+device/lib/
+device/models/
+device/assets/
+device/manifest.json
+device/text/G2PWModel/
+device/text/g2pw/polyphonic.pickle
+
+# Python / 构建产物
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+build_x86/
+*.so

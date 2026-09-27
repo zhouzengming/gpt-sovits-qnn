@@ -1,0 +1,26 @@
+# 主机端（x86_64 Linux）：导出、验证、在 Qualcomm AI Hub 上编译。torch 用 CPU 版即可：
+#   pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+# 验证时使用的版本：Python 3.12、torch 2.5.1、transformers 4.46.3、onnx 1.23.0、onnxruntime 1.30.0、qai-hub 0.55.0
+torch>=2.5,<2.6          # 导出/验证用；transformers 4.x 在 torch<2.6 下可直接读取 .bin 权重
+torchaudio>=2.5,<2.6
+transformers==4.46.3     # 5.x 改了 BertLayer 的调用方式；GPT-SoVITS 本身也基于 4.x
+onnx>=1.17
+onnxslim>=0.1.90
+onnxruntime>=1.20
+qai-hub==0.55.0          # aihub_download.py 用到了该版本的内部凭证接口
+botocore                 # aihub_download.py 分片下载
+numpy
+scipy
+librosa
+soundfile
+# GPT-SoVITS 的模型代码依赖
+pytorch_lightning
+torchmetrics
+einops
+x_transformers
+cn2an
+pypinyin
+jieba
+jieba_fast               # GPT-SoVITS 中文前端（本仓库板端代码缺失时会回退到 jieba）
+opencc
+ziglang                  # 可选：交叉编译板端库（make_deploy.py --cross-compile）

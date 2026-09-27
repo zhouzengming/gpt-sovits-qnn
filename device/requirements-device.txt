@@ -1,0 +1,12 @@
+# CPU side of the runtime (no torch, no onnxruntime needed): all 6 models run on the NPU through
+# lib/libgsv_qnn.so + qnn_libs/. (onnxruntime is only needed for `--backend ort` testing on a PC.)
+numpy
+transformers<5     # tokenizers for BERT / G2PW
+pypinyin
+cn2an
+jieba              # word segmentation; jieba_fast (C extension, needs a compiler) is used instead when installed
+opencc             # if no aarch64 wheel builds: pip install opencc-python-reimplemented (same import name)
+# OpenAI-compatible service (serve_tts.py)
+fastapi
+uvicorn
+# optional: `apt install ffmpeg` for response_format mp3/opus/aac/flac (wav/pcm need nothing)

@@ -289,28 +289,42 @@ def _cut_long(piece, maxc):
     return out
 
 
-def split_text(text, maxc=30, minc=5):
-    """Split at sentence-ending punctuation (。！？!?… and line breaks). Sentences longer than maxc characters are
-    cut at commas/semicolons (hard cut if there are none); segments shorter than minc characters are merged into
-    a neighbour when the result stays <= maxc. Lengths are counted by han_len (after number normalization)."""
+def _units(text, maxc):
+    """Natural units: sentences (split at 。！？!?… and line breaks); sentences longer than maxc are cut into
+    comma/semicolon clauses (hard cut only without punctuation). Punctuation-only fragments join the previous unit."""
     text = re.sub(f"(?<=[{SENT_END}”」』’）)\"'])\\s*\\n+\\s*", "", text.strip())  # line break after an end mark
     text = re.sub(r"\s*\n+\s*", "。", text)  # any other line break ends a sentence
     text = re.sub(r"(?<!\d)\.|\.(?!\d)", "。", text)  # "." ends a sentence unless it is a decimal point
     parts = re.split(f"([{SENT_END}]+[”」』’）)\"']*)", text)
-    sents = ["".join(parts[i:i + 2]).strip() for i in range(0, len(parts), 2)]
-    pieces = []
-    for s in sents:
+    units = []
+    for s in ("".join(parts[i:i + 2]).strip() for i in range(0, len(parts), 2)):
         if not s:
             continue
-        if han_len(s) == 0:  # punctuation only: attach to the previous piece
-            if pieces:
-                pieces[-1] += s
+        if han_len(s) == 0:
+            if units:
+                units[-1] += s
             continue
-        pieces += _cut_long(s, maxc) if han_len(s) > maxc else [s]
-    i = 0  # merge short pieces into a neighbour (previous first) while staying <= maxc
+        units += _cut_long(s, maxc) if han_len(s) > maxc else [s]
+    return units
+
+
+def split_text(text, maxc=30, minc=5):
+    """Segments for one synthesis call each: consecutive natural units (sentences, or clauses of sentences longer
+    than maxc) are packed greedily while the segment stays <= maxc characters, so each call gets close to maxc
+    characters without ever cutting inside a sentence/clause. A leftover shorter than minc is merged into a
+    neighbour when the result stays <= maxc. Lengths are counted by han_len (after number normalization)."""
+    pieces, cur = [], ""
+    for u in _units(text, maxc):
+        if cur and han_len(cur + u) > maxc:
+            pieces.append(cur)
+            cur = u
+        else:
+            cur += u
+    if cur:
+        pieces.append(cur)
+    i = 0  # merge short leftovers into a neighbour (previous first) while staying <= maxc
     while i < len(pieces):
-        n = han_len(pieces[i])
-        if n < minc and len(pieces) > 1:
+        if han_len(pieces[i]) < minc and len(pieces) > 1:
             if i > 0 and han_len(pieces[i - 1] + pieces[i]) <= maxc:
                 pieces[i - 1] += pieces.pop(i)
                 continue
@@ -319,6 +333,29 @@ def split_text(text, maxc=30, minc=5):
                 continue
         i += 1
     return [p if p[-1] in PUNCT else p + "。" for p in pieces]
+
+
+def split_half(seg):
+    """Cut a segment in two at the natural boundary closest to its middle: sentence ends first, then
+    commas/semicolons, then (no punctuation left) a word boundary from jieba. Used when a segment hits the
+    per-call length limit."""
+    n = han_len(seg)
+    for marks in (SENT_END, SUB_SPLIT):
+        cands = [m.end() for m in re.finditer(f"[{marks}]+[”」』’）)\"']*", seg) if 0 < m.end() < len(seg.rstrip())]
+        if cands:
+            k = min(cands, key=lambda c: abs(han_len(seg[:c]) - n / 2))
+            return [seg[:k], seg[k:]]
+    try:
+        import jieba_fast as jieba
+    except ImportError:
+        import jieba
+    ends, pos = [], 0
+    for w in jieba.lcut(seg):
+        pos += len(w)
+        ends.append(pos)
+    cands = [e for e in ends if 0 < e < len(seg.rstrip(PUNCT))] or [len(seg) // 2]
+    k = min(cands, key=lambda c: abs(c - len(seg) / 2))
+    return [seg[:k] + "，", seg[k:]]
 
 
 NOTCH_HZ = (11000.0, 13000.0, 13500.0, 14500.0, 15700.0)  # tonal comb left by SoVITS fine-tuning (500 Hz multiples)
@@ -526,10 +563,13 @@ class GPTSoVITS:
     def segments(self, text, voice=None, interval=0.3, clause_interval=0.15, hf_filter="off", presence_db=0.0,
                  fade=True, **kw):
         """Yield (audio_float32, info) per segment as soon as it is synthesized, followed by a pause:
-        `interval` s after a sentence end, `clause_interval` s where a long sentence was cut at a comma."""
+        `interval` s after a sentence end, `clause_interval` s where a long sentence was cut at a comma.
+        A segment that reaches the per-call token limit without an end token is re-synthesized as two halves."""
         self.set_voice(voice)
         ref_phones, ref_bert = self.ref["phones"], self.ref["bert"]
-        for seg in split_text(text):
+        queue = split_text(text)
+        while queue:
+            seg = queue.pop(0)
             t0 = time.perf_counter()
             phones, word2ph, norm = self.frontend(seg)
             t1 = time.perf_counter()
@@ -537,6 +577,10 @@ class GPTSoVITS:
             t2 = time.perf_counter()
             tokens, eos = self.t2s(np.concatenate([ref_phones, phones]), np.concatenate([ref_bert, bert]), **kw)
             t3 = time.perf_counter()
+            if not eos and han_len(seg) > 1:
+                # no end token within one call (FR // 2 tokens = 10 s): synthesize the two halves instead
+                queue[:0] = split_half(seg)
+                continue
             audio = post_filter(self.vits(tokens, phones), mode=hf_filter, presence_db=presence_db)
             peak = np.abs(audio).max() if len(audio) else 0
             if peak > 1:

@@ -106,7 +106,7 @@ curl http://<板子IP>:8000/v1/audio/speech -H 'Content-Type: application/json' 
 ## 限制
 
 - 只支持 GPT-SoVITS **v2Pro / v2ProPlus**（v2ProPlus 未实测）和**中文**文本。
-- 每段最长 10 s（长文本会按句自动切分，每段不超过 30 字）；`speed` 只支持 1.0。
+- 每段最长 10 s（长文本按自然语句切分后，把相邻句子打包成不超过 30 字的段，超长时自动再对半切）；`speed` 只支持 1.0。
 - 只在 QCS8550 上验证过；其他 v73 NPU 的 SoC 可能只需改 `DEVICE` / `QNN_TARGET`，未测试。
 
 ## 许可证
